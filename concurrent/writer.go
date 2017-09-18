@@ -14,7 +14,7 @@ const maxConsecutiveEmptyReads = 100
 // long as enough buffer space is available.
 //
 // Note however that writes will still block in a number of cases, e.g. when
-// another write larger than the buffer size (AKA a chunked write), is in
+// another write larger than the buffer size (AKA a chunked write) is in
 // progress. Also, concurrent Flush() calls (whether explicit or triggered by
 // the buffer filling up) will block one another.
 //
