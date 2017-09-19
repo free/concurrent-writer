@@ -1,6 +1,8 @@
 package concurrent
 
 import (
+	"bufio"
+	"fmt"
 	"io"
 	"sync"
 	"unicode/utf8"
@@ -17,6 +19,10 @@ const maxConsecutiveEmptyReads = 100
 // another write larger than the buffer size (AKA a chunked write) is in
 // progress. Also, concurrent Flush() calls (whether explicit or triggered by
 // the buffer filling up) will block one another.
+//
+// Optionally, to help avoid the buffer filling up in the first place, automatic
+// asynchronous flushing may be enabled when a configured fraction of the buffer
+// is filled and no other flush is in progress.
 //
 // Implementation details:
 //
@@ -70,6 +76,9 @@ type Writer struct {
 	notFlushing *sync.Cond
 	// Condition variable that the only chunked writer is waiting on to flush()
 	chunkedWriter *sync.Cond
+
+	// Automatically flush when n > flushAt
+	flushAt int
 }
 
 // NewWriterSize returns a new Writer whose buffer has at least the specified
@@ -95,12 +104,37 @@ func NewWriterSize(w io.Writer, size int) *Writer {
 		noChunkedWrite: sync.NewCond(m),
 		notFlushing:    sync.NewCond(m),
 		chunkedWriter:  sync.NewCond(m),
+		flushAt:        2 * size,
 	}
 }
 
 // NewWriter returns a new Writer whose buffer has the default size.
 func NewWriter(w io.Writer) *Writer {
 	return NewWriterSize(w, defaultBufSize)
+}
+
+// NewWriterSize returns a new Writer whose buffer has at least the specified
+// size and that will automatically trigger an asynchronous flush when the
+// given buffer fraction is filled (e.g. 0.75 will flush when the buffer is 75%
+// full). Panics if the argument io.Writer is already a Writer or bufio.Writer.
+func NewWriterAutoFlush(w io.Writer, size int, flushAt float32) *Writer {
+	if flushAt < 0 && flushAt != -1 || flushAt > 1 {
+		panic(fmt.Sprintf("flushAt should be -1.0 or a fraction 0.0 <= flushAt <= 1.0, got %f", flushAt))
+	}
+	// Is it already a Writer?
+	_, ok := w.(*Writer)
+	if !ok {
+		_, ok = w.(*bufio.Writer)
+	}
+	if ok {
+		panic("Will not auto flush on top of a buffered writer")
+	}
+
+	b := NewWriterSize(w, size)
+	if flushAt != -1 {
+		b.flushAt = int(flushAt * float32(size))
+	}
+	return b
 }
 
 // Reset discards any unflushed buffered data, clears any error, and
@@ -239,6 +273,14 @@ func (b *Writer) flush_simple(need int) error {
 	return nil
 }
 
+// Triggers an async Flush() if more than flushAt bytes are used and no Flush()
+// call is already in progress.
+func (b *Writer) maybeAutoFlush() {
+	if b.n >= b.flushAt && b.nFlush == 0 {
+		go b.Flush()
+	}
+}
+
 // Resets the inChunkedWriteMode flag and wakes a goroutine waiting to write.
 func (b *Writer) endChunkedWrite() {
 	b.inChunkedWriteMode = false
@@ -309,6 +351,7 @@ func (b *Writer) Write(p []byte) (nn int, err error) {
 	n := copy(b.buf[b.n:], p)
 	b.n += n
 	nn += n
+	b.maybeAutoFlush()
 	return nn, nil
 }
 
@@ -327,6 +370,7 @@ func (b *Writer) WriteByte(c byte) error {
 	}
 	b.buf[b.n] = c
 	b.n++
+	b.maybeAutoFlush()
 	return nil
 }
 
@@ -378,6 +422,7 @@ func (b *Writer) WriteString(s string) (int, error) {
 	n := copy(b.buf[b.n:], s)
 	b.n += n
 	nn += n
+	b.maybeAutoFlush()
 	return nn, nil
 }
 
@@ -409,6 +454,7 @@ func (b *Writer) ReadFrom(r io.Reader) (n int64, err error) {
 			nr++
 		}
 		if nr == maxConsecutiveEmptyReads {
+			b.maybeAutoFlush()
 			return n, io.ErrNoProgress
 		}
 		b.n += m
@@ -423,12 +469,10 @@ func (b *Writer) ReadFrom(r io.Reader) (n int64, err error) {
 		}
 	}
 	if err == io.EOF {
-		// If we filled the buffer exactly, flush preemptively.
-		if b.available() == 0 {
-			err = b.flush(1)
-		} else {
-			err = nil
-		}
+		err = nil
+	}
+	if err != nil {
+		b.maybeAutoFlush()
 	}
 	return n, err
 }

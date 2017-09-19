@@ -1,6 +1,7 @@
 package concurrent
 
 import (
+	"bufio"
 	"bytes"
 	"fmt"
 	"io"
@@ -445,20 +446,26 @@ func TestConcurrentError(t *testing.T) {
 }
 
 // A callbackBuffer is like bytes.Buffer, but Write() will invoke the given
-// callback then reset it. It counts the number of times Write is called on it.
+// callbacks then reset them. It counts the number of times Write is called.
 type callbackBuffer struct {
-	buf      bytes.Buffer
-	n        int
-	callback func()
+	buf    bytes.Buffer
+	n      int
+	before func()
+	after  func()
 }
 
 func (w *callbackBuffer) Write(p []byte) (int, error) {
 	w.n++
-	if w.callback != nil {
-		w.callback()
-		w.callback = nil
+	if w.before != nil {
+		w.before()
+		w.before = nil
 	}
-	return w.buf.Write(p)
+	written, err := w.buf.Write(p)
+	if w.after != nil {
+		w.after()
+		w.after = nil
+	}
+	return written, err
 }
 
 func TestFlushDoesNotBlockWrite(t *testing.T) {
@@ -482,7 +489,7 @@ func TestFlushDoesNotBlockWrite(t *testing.T) {
 		}(i)
 	}
 
-	w.callback = func() {
+	w.before = func() {
 		// Flush() is in progress, unblock writer goroutines
 		isFlushing.Done()
 		// And wait for all writes to complete before allowing the flush to continue
@@ -520,6 +527,92 @@ func TestFlushDoesNotBlockWrite(t *testing.T) {
 			t.Errorf("wrong bytes written")
 			t.Errorf("want %d * %q", nr+1, data)
 			t.Fatalf("have=%q", written)
+		}
+	}
+}
+
+func TestAutoFlushPanicWithBufferedWriter(t *testing.T) {
+	func() {
+		w := bufio.NewWriterSize(new(bytes.Buffer), 10)
+		defer func() {
+			if r := recover(); r == nil {
+				t.Errorf("Expected NewWriterAutoFlush to panic when called with bufio.Writer argument")
+			}
+		}()
+		NewWriterAutoFlush(w, 10, .5)
+	}()
+	func() {
+		w := NewWriterSize(new(bytes.Buffer), 10)
+		defer func() {
+			if r := recover(); r == nil {
+				t.Errorf("Expected NewWriterAutoFlush to panic when called with Writer argument")
+			}
+		}()
+		NewWriterAutoFlush(w, 10, .5)
+	}()
+	func() {
+		w := NewWriterAutoFlush(new(bytes.Buffer), 10, .5)
+		defer func() {
+			if r := recover(); r == nil {
+				t.Errorf("Expected NewWriterAutoFlush to panic when called with Writer argument")
+			}
+		}()
+		NewWriterAutoFlush(w, 10, .5)
+	}()
+}
+
+func TestAutoFlush(t *testing.T) {
+	var data [9]byte
+	for i := 0; i < len(data); i++ {
+		data[i] = byte('0' + i)
+	}
+
+	var flushDone, writeDone sync.WaitGroup
+
+	for i := 0; i < 10000; i++ {
+		w := new(callbackBuffer)
+		buf := NewWriterAutoFlush(w, 10, .5)
+		checkNWrites := func(n int) {
+			if w.n != n {
+				t.Errorf("Want %d writes, got %d", n, w.n)
+			}
+		}
+
+		flushDone.Add(1)
+		writeDone.Add(1)
+		go func() {
+			flushDone.Wait()
+			buf.Write(data[6:])
+			writeDone.Done()
+		}()
+		w.after = func() {
+			// Auto flush has completed write, unblock data[6:] write
+			flushDone.Done()
+		}
+		// Write 4 bytes, should not trigger an auto flush
+		buf.Write(data[:4])
+		checkNWrites(0)
+		// Write 5th byte, trigger auto flush
+		buf.Write(data[4:6])
+		writeDone.Wait()
+		checkNWrites(1)
+		if w.buf.Len() != 6 {
+			t.Fatalf("Expected 6 bytes in w.buf, got %d (%q)", w.buf.Len(), w.buf)
+		}
+		// Explicitly flush the rest of the bytes
+		if err := buf.Flush(); err != nil {
+			t.Errorf("Flush returned %v", err)
+		}
+		checkNWrites(2)
+
+		written := w.buf.Bytes()
+		if len(written) != len(data) {
+			t.Errorf("%d bytes written, expected %d", len(written), len(data))
+		}
+		for j := 0; j < len(written); j++ {
+			if written[j] != data[j] {
+				t.Errorf("wrong bytes written: want %q have %q", data, written)
+			}
 		}
 	}
 }
