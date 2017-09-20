@@ -113,10 +113,11 @@ func NewWriter(w io.Writer) *Writer {
 	return NewWriterSize(w, defaultBufSize)
 }
 
-// NewWriterSize returns a new Writer whose buffer has at least the specified
-// size and that will automatically trigger an asynchronous flush when the
-// given buffer fraction is filled (e.g. 0.75 will flush when the buffer is 75%
-// full). Panics if the argument io.Writer is already a Writer or bufio.Writer.
+// NewWriterAutoFlush returns a new Writer whose buffer has at least the
+// specified size and that will automatically trigger an asynchronous flush when
+// the given buffer fraction is filled (e.g. 0.75 will flush when the buffer is
+// 75% full). Panics if the argument io.Writer is already a Writer or
+// bufio.Writer.
 func NewWriterAutoFlush(w io.Writer, size int, flushAt float32) *Writer {
 	if flushAt < 0 && flushAt != -1 || flushAt > 1 {
 		panic(fmt.Sprintf("flushAt should be -1.0 or a fraction 0.0 <= flushAt <= 1.0, got %f", flushAt))
@@ -250,7 +251,7 @@ func (b *Writer) flush(need int) error {
 }
 
 // Straightforward implementation, no mutex release, for benchmarking purposes.
-func (b *Writer) flush_simple(need int) error {
+func (b *Writer) flushSimple(need int) error {
 	if b.err != nil {
 		return b.err
 	}

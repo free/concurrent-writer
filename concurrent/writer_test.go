@@ -105,7 +105,7 @@ func (w *presetWriter) Write(p []byte) (int, error) {
 func (w *presetWriter) ReadFrom(r io.Reader) (n int64, err error) {
 	var buf [1024]byte
 	for {
-		m, e := r.Read(buf[0:len(buf)])
+		m, e := r.Read(buf[0:])
 		m2, e2 := w.Write(buf[:m])
 		n += int64(m2)
 		if e2 != nil {
@@ -788,8 +788,8 @@ func (r errorReaderFromTest) Read(p []byte) (int, error) {
 	return len(p) * r.rn, r.rerr
 }
 
-func (w errorReaderFromTest) Write(p []byte) (int, error) {
-	return len(p) * w.wn, w.werr
+func (r errorReaderFromTest) Write(p []byte) (int, error) {
+	return len(p) * r.wn, r.werr
 }
 
 var errorReaderFromTests = []errorReaderFromTest{
