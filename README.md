@@ -1,7 +1,7 @@
 # concurrent-writer [![Build Status](https://travis-ci.org/alin-sinpalean/concurrent-writer.svg)](https://travis-ci.org/alin-sinpalean/concurrent-writer) [![Go Report Card](https://goreportcard.com/badge/github.com/alin-sinpalean/concurrent-writer)](https://goreportcard.com/report/github.com/alin-sinpalean/concurrent-writer) [![Coverage](https://gocover.io/_badge/github.com/alin-sinpalean/concurrent-writer/concurrent)](https://gocover.io/github.com/alin-sinpalean/concurrent-writer/concurrent) [![GoDoc](https://godoc.org/github.com/alin-sinpalean/concurrent-writer/concurrent?status.svg)](https://godoc.org/github.com/alin-sinpalean/concurrent-writer/concurrent)
 Highly concurrent drop-in replacement for `bufio.Writer`.
 
-`Writer` implements highly concurrent buffering for an `io.Writer` object.
+`concurrent.Writer` implements highly concurrent buffering for an `io.Writer` object.
 In particular, writes will not block while a `Flush()` call is in progress as
 long as enough buffer space is available.
 
