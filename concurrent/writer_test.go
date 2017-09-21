@@ -615,6 +615,12 @@ func TestAutoFlush(t *testing.T) {
 		if w.buf.Len() != 6 {
 			t.Fatalf("Expected 6 bytes in w.buf, got %d (%q)", w.buf.Len(), w.buf)
 		}
+		if b := buf.Buffered(); b != 3 {
+			t.Errorf("Expected 3 bytes to be buffered, got %d", b)
+		}
+		if a := buf.Available(); a != 7 {
+			t.Errorf("Expected 7 bytes to be available, got %d", a)
+		}
 		// Explicitly flush the rest of the bytes
 		if err := buf.Flush(); err != nil {
 			t.Errorf("Flush returned %v", err)

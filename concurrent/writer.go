@@ -266,30 +266,6 @@ func (b *Writer) flush(need int) error {
 	return b.err
 }
 
-// Straightforward implementation, no mutex release, for benchmarking purposes.
-func (b *Writer) flushSimple(need int) error {
-	if b.err != nil {
-		return b.err
-	}
-	if b.n == 0 {
-		return nil
-	}
-	n, err := b.wr.Write(b.buf[0:b.n])
-	if n < b.n && err == nil {
-		err = io.ErrShortWrite
-	}
-	if err != nil {
-		if n > 0 && n < b.n {
-			copy(b.buf[0:b.n-n], b.buf[n:b.n])
-		}
-		b.n -= n
-		b.err = err
-		return err
-	}
-	b.n = 0
-	return nil
-}
-
 // Triggers an async Flush() if more than flushAt bytes are used and no Flush()
 // call is already in progress.
 func (b *Writer) maybeAutoFlush() {
